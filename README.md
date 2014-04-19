@@ -1,4 +1,4 @@
-# Directory: Wicci/Core/S3_more
+# Directory: Wicci/Core/S4_doc
 
 ## This project is dependent on
 
