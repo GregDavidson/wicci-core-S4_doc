@@ -51,31 +51,31 @@ CREATE TABLE IF NOT EXISTS abstract_doc_rows (
 
 COMMENT ON TABLE abstract_doc_rows IS
 'Most doc_rows tables should probably inherit from
-abstract_base_doc_rows instead of this base class!';
+abstract_lang_doc_rows instead of this base class!';
 
 SELECT declare_abstract('abstract_doc_rows');
 SELECT declare_ref_type_class('doc_refs', 'abstract_doc_rows'); -- why??
 
-CREATE TABLE IF NOT EXISTS abstract_base_doc_rows (
-	lang doc_lang_name_refs NOT NULL, -- REFERENCES doc_lang_name_rows
-	page_uri_ page_uri_refs -- REFERENCES page_uri_rows
+CREATE TABLE IF NOT EXISTS abstract_lang_doc_rows (
+	lang doc_lang_name_refs NOT NULL; -- REFERENCES doc_lang_name_rows
+	uri_ uri_refs; -- REFERENCES uri_rows;
 ) INHERITS (abstract_doc_rows);
-COMMENT ON COLUMN abstract_base_doc_rows.page_uri_ IS
-'For document management purposes,
-e.g. XFiles Domain Path document was loaded from,
-typically but not necessarily the uri of a webpage.';
+COMMENT ON COLUMN abstract_lang_doc_rows.uri_ IS
+'For management purposes only - not necessarily the uri of a webpage.';
 
-SELECT declare_abstract('abstract_base_doc_rows');
--- SELECT declare_ref_type_class('doc_refs', 'abstract_base_doc_rows'); -- why??
+SELECT declare_abstract('abstract_lang_doc_rows');
+-- SELECT declare_ref_type_class('doc_refs', 'abstract_lang_doc_rows'); -- why??
 
 CREATE TABLE IF NOT EXISTS abstract_static_doc_rows (
-	hash__ blob_hashes,
-	length__ bigint
-) INHERITS (abstract_base_doc_rows);
+	hash__ blob_hash;
+	length__ bigint;
+) INHERITS (abstract_lang_doc_rows);
 COMMENT ON COLUMN abstract_static_doc_rows.hash__ IS
-'If present, should be the md5 hash of the document contents.';
+'If present, should be the md5 hash of the document contents.
+This should be redundant and as the suffix indicates, this field may go away!';
 COMMENT ON COLUMN abstract_static_doc_rows.length__ IS
-'If present, should be the byte count of the document contents.';
+'If present, should be the byte count of the document contents.
+This should be redundant and as the suffix indicates, this field may go away!';
 
 SELECT declare_abstract('abstract_static_doc_rows');
 -- SELECT declare_ref_type_class('doc_refs', 'abstract_static_doc_rows'); -- why??
@@ -116,8 +116,9 @@ CREATE TABLE IF NOT EXISTS tree_doc_rows (
 	FOREIGN KEY(ref) REFERENCES doc_keys ON DELETE CASCADE,
 	FOREIGN KEY(lang) REFERENCES doc_lang_name_rows,
 	root doc_node_refs UNIQUE NOT NULL
-		REFERENCES doc_node_keys
-) INHERITS(abstract_base_doc_rows);
+		REFERENCES doc_node_keys,
+	lang doc_lang_name_refs NOT NULL REFERENCES doc_lang_name_rows
+) INHERITS(abstract_lang_doc_rows);
 COMMENT ON TABLE tree_doc_rows IS
 'tree_doc_rows represents a document comprising a complete
 tree structure starting with a given root node.';
@@ -164,7 +165,7 @@ SELECT create_key_triggers_for('changeset_doc_rows', 'doc_keys');
 CREATE TABLE IF NOT EXISTS blob_doc_rows (
 	PRIMARY KEY (ref),
 	FOREIGN KEY(lang) REFERENCES doc_lang_name_rows,
-	blob_ blob_refs NOT NULL REFERENCES blob_rows
+	blob_ blob_refs NOT NULL REFERENCES blob_rows,
 ) INHERITS(abstract_static_doc_rows);
 COMMENT ON TABLE blob_doc_rows IS
 'Represents a possibly large, possibly binary sequence of
@@ -185,13 +186,15 @@ SELECT create_key_triggers_for('blob_doc_rows', 'doc_keys');
 CREATE TABLE IF NOT EXISTS file_doc_rows (
 	PRIMARY KEY (ref),
 	FOREIGN KEY(lang) REFERENCES doc_lang_name_rows,
-	FOREIGN KEY(page_uri_) REFERENCES page_uri_rows
+	file_ page_uri_refs NOT NULL REFERENCES page_uri_rows,
 ) INHERITS(abstract_static_doc_rows);
 COMMENT ON TABLE file_doc_rows IS
 'Represents a possibly large, possibly binary sequence of
 bytes which will be given to clients as one or more chunks of
 type bytea, along with the associated lang.  Clients, e.g. a
 Wicci Shim are responsble for correctly interpreting the bytes.';
+COMMENT ON COLUMN file_doc_rows.file_ IS
+'a path to an external file under the directory ~postgres/data/XFiles';
 
 SELECT declare_ref_class('file_doc_rows');
 
@@ -205,7 +208,7 @@ SELECT create_key_triggers_for('file_doc_rows', 'doc_keys');
 CREATE TABLE IF NOT EXISTS large_object_doc_rows (
 	PRIMARY KEY (ref),
 	FOREIGN KEY(lang) REFERENCES doc_lang_name_rows,
-	oid oid NOT NULL
+	oid oids _refs NOT NULL
 ) INHERITS(abstract_static_doc_rows);
 COMMENT ON TABLE large_object_doc_rows IS
 'Represents a possibly large, possibly binary sequence of
@@ -219,11 +222,3 @@ ALTER TABLE large_object_doc_rows ALTER COLUMN ref
 	SET DEFAULT next_doc_ref( 'large_object_doc_rows' );
 
 SELECT create_key_triggers_for('large_object_doc_rows', 'doc_keys');
-
--- * static_doc_storage_policy
-
-CREATE OR REPLACE
-FUNCTION static_doc_storage_policy()
-RETURNS regclass AS $$
-	SELECT 'file_doc_rows'::regclass
-$$ LANGUAGE SQL;

@@ -165,40 +165,7 @@ COMMENT ON TABLE dynamic_kind_methods IS '
 
 -- * Blob Kinds
 
--- blobs should probably become "large objects"
--- and be served by placing the large object oid
--- as the value associated with a reserved http
--- response name!!
-
-/*
-
--- ** text_blob_kind
-
-SELECT create_ref_type('text_blob_kind_refs');
-
-DROP CAST IF EXISTS (text_blob_kind_refs AS doc_node_kind_refs)
-	CASCADE;
-CREATE CAST (text_blob_kind_refs AS doc_node_kind_refs)
-WITHOUT FUNCTION AS IMPLICIT;
-
-CREATE TABLE IF NOT EXISTS text_blob_kind_rows (
-	ref text_blob_kind_refs PRIMARY KEY,
-	uri page_uri_refs NOT NULL REFERENCES page_uri_rows
-		CHECK( ref_id(ref) = ref_id(uri) ),
-	lang doc_lang_name_refs
-		NOT NULL REFERENCES doc_lang_name_rows,
-	val text NOT NULL
-);
-COMMENT ON TABLE text_blob_kind_rows IS
-'text_blob_kind_rows holds the contents of a given file
-as a text blob, i.e. a chunk of bytes.';
-
-SELECT declare_ref_class_with_funcs('text_blob_kind_rows');
-
--- ** binary_blob_kind
-
--- We could create binary blobs, but how are we to serve
--- their content?  The client would have to know that it is
--- a binary blob and fetch it accordingly.
-
-*/
+-- We no longer have Blob Kinds, although we have
+-- Blob Documents.  We also have Blobs defined
+-- in text-ref-schema.sql which are available if
+-- we ever need to recreate Blob Kinds!

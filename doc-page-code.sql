@@ -192,69 +192,45 @@ FUNCTION find_page_doc(page_uri_refs) RETURNS doc_refs AS $$
 	)
 $$ LANGUAGE sql;
 
--- * large_object_docs aka "blobs"
+-- * static document pages
 
--- CREATE OR REPLACE
--- FUNCTION doc_default_domain_path() RETURNS text AS $$
--- 	SELECT '~/.Wicci/XFiles/Domain/'::text
--- $$ LANGUAGE sql;
+CREATE OR REPLACE FUNCTION try_get_static_xfiles_page(
+	file_name text,
+	doc_lang doc_lang_name_refs,
+	file_size bigint = -1,
+	file_hash blob_hashes = blob_hash_nil()
+) RETURNS doc_page_refs AS $$
+	SELECT get_doc_page(page_uri, doc)
+	FROM
+		xfiles_page_uri(file_name) page_uri,
+		LATERAL get_static_doc($1, $2, page_uri, $3, $4) doc
+$$ LANGUAGE sql STRICT;
 
-CREATE OR REPLACE FUNCTION try_get_blob(
-	page_uri_refs, doc_lang_name_refs, file_size bigint,
-	domain_path text = '' -- doc_default_domain_path()
-) RETURNS oid AS $$
-	DECLARE
-		_lo RECORD;
-		lo_oid oid;
-		_path text := page_uri_text($1);
-		full_path text := CASE WHEN _path LIKE '/%'
-		THEN _path ELSE $4 || '/' || _path END;
-		kilroy_was_here boolean := false;
-		this regprocedure := 'try_get_blob(
-			page_uri_refs, doc_lang_name_refs, bigint, text
-		)';
-	BEGIN
-		LOOP
-			SELECT * INTO _lo FROM large_object_docs
-			WHERE uri_ = $1;
-			IF FOUND THEN
-				IF _lo.lang_ IS DISTINCT FROM $2 THEN
-					RAISE EXCEPTION '%: % lang % <> %',
-					this, $1, _lo.lang_, $2;
-				END IF;
-				RETURN _lo.lo_;
-			END IF;
-			IF kilroy_was_here THEN
-				RAISE EXCEPTION '% looping with % %', this, $1, $2;
-			END IF;
-			kilroy_was_here := true;
-			BEGIN
-				RAISE NOTICE '%: SELECT lo_import(%)', this, full_path;
-				lo_oid := lo_import(full_path);
-				IF lo_oid IS NULL THEN
-					RAISE EXCEPTION '%: lo_import(%) failed', this, $1;
-				END IF;
-				INSERT INTO large_object_docs(uri_, lang_, length_, lo_)
-				VALUES ($1, $2, $3, lo_oid);
-			EXCEPTION
-				WHEN unique_violation THEN			-- another thread??
-					RAISE NOTICE '% % % raised %!',
-					this, $1, $2, 'unique_violation';
-			END;
-		END LOOP;
-	END;
-$$ LANGUAGE plpgsql STRICT;
-
-CREATE OR REPLACE FUNCTION get_blob(
-	text, doc_lang_name_refs, file_size bigint,
-	domain_path text = '' -- doc_default_domain_path()
-) RETURNS oid AS $$
+CREATE OR REPLACE FUNCTION get_static_xfiles_page(
+	file_name text,
+	doc_lang doc_lang_name_refs,
+	file_size bigint = -1,
+	file_hash blob_hashes = blob_hash_nil()
+) RETURNS doc_page_refs AS $$
 	SELECT non_null(
-		try_get_blob(get_page_uri($1), $2, $3, $4),
-		'get_blob(text,doc_lang_name_refs, bigint, text)'
+		try_get_static_xfiles_page($1, $2, $3, $4),
+		'get_static_xfiles_page(text,doc_lang_name_refs, bigint, blob_hashes)'
 	)
 $$ LANGUAGE sql;
 
-COMMENT ON
-FUNCTION get_blob(text, doc_lang_name_refs, bigint, text)
-IS 'find or create blob as a large object';
+COMMENT ON FUNCTION get_static_xfiles_page(
+	text, doc_lang_name_refs,	bigint, blob_hashes
+) IS '
+	find or create a static (unparsed, simple hunk of bytes) document
+	and bind it to a page url
+';
+
+CREATE OR REPLACE FUNCTION get_static_xfiles_page(
+	file_name text,
+	doc_lang doc_lang_name_refs,
+	dir_path text,
+	file_size bigint = -1,
+	file_hash blob_hashes = blob_hash_nil()
+) RETURNS doc_page_refs AS $$
+	SELECT get_static_xfiles_page($3 || '/' || $1, $2, $4, $5)
+$$ LANGUAGE sql;

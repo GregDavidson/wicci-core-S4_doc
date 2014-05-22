@@ -228,6 +228,258 @@ FUNCTION try_doc(refs) RETURNS doc_refs AS $$
 	WHERE tag_ = ref_tag($1) AND type_ = 'doc_refs'::regtype
 $$ LANGUAGE sql;
 
+-- * blob_doc_rows
+
+-- rewrite!!!
+CREATE OR REPLACE FUNCTION get_blob_doc (
+	full_path text, page_uri_refs, doc_lang_name_refs,
+	file_size bigint = -1, blob_hashes = blob_hash_nil()
+) RETURNS doc_refs AS $$
+	SELECT doc_nil()
+$$ LANGUAGE sql;
+
+COMMENT ON FUNCTION 
+get_blob_doc(text, page_uri_refs, doc_lang_name_refs, bigint, blob_hashes)
+IS 'undefined!!!';
+
+-- * file_doc_rows
+
+-- rewrite!!!
+CREATE OR REPLACE FUNCTION try_get_file_doc (
+	page page_uri_refs, lang_name doc_lang_name_refs,
+	file_size bigint = -1, blob_hashes = blob_hash_nil()
+) RETURNS doc_refs AS $$
+	DECLARE
+		doc doc_refs := NULL; -- unchecked_ref_null();
+		kilroy_was_here boolean := false;
+		this regprocedure := 'try_get_file_doc(
+			page_uri_refs, doc_lang_name_refs, bigint, blob_hashes
+		)';
+	BEGIN
+		LOOP
+			SELECT ref INTO doc FROM file_doc_rows
+			WHERE page_uri_ = page AND lang = lang_name;
+			IF FOUND THEN RETURN doc; END IF;
+			IF kilroy_was_here THEN
+				RAISE EXCEPTION '% looping with % %', this, $2, $3;
+			END IF;
+			kilroy_was_here := true;
+			BEGIN
+				INSERT INTO file_doc_rows(page_uri_, lang)
+				VALUES ($1, $2);
+			EXCEPTION
+				WHEN unique_violation THEN			-- another thread??
+					RAISE NOTICE '% % % raised %!',
+					this, $1, $2, 'unique_violation';
+			END;
+		END LOOP;
+	END;
+$$ LANGUAGE plpgsql STRICT;
+
+CREATE OR REPLACE FUNCTION get_file_doc (
+	page_uri_refs, doc_lang_name_refs,
+	bigint = -1, blob_hashes = blob_hash_nil()
+) RETURNS doc_refs AS $$
+	SELECT non_null(
+		try_get_file_doc($1, $2, $3, $4),
+		'get_file_doc(page_uri_refs, doc_lang_name_refs,	bigint, blob_hashes)'
+	)
+$$ LANGUAGE sql;
+
+-- * large_object_doc_rows
+
+CREATE OR REPLACE FUNCTION try_get_large_object_doc(
+	full_path text, page_uri_refs, doc_lang_name_refs,
+	file_size bigint = -1, blob_hashes = blob_hash_nil()
+) RETURNS doc_refs AS $$
+	DECLARE
+		_lo RECORD;
+		lo_oid oid;
+		kilroy_was_here boolean := false;
+		this regprocedure := 'try_get_large_object_doc(
+			page_uri_refs, doc_lang_name_refs, bigint, text
+		)';
+	BEGIN
+		LOOP
+			SELECT * INTO _lo FROM large_object_doc_rows
+			WHERE page_uri_ = $2;
+			IF FOUND THEN
+				IF _lo.lang IS DISTINCT FROM $3 THEN
+					RAISE EXCEPTION '%: % lang % <> %',
+					this, $1, _lo.lang, $3;
+				END IF;
+				RETURN _lo.lo_;
+			END IF;
+			IF kilroy_was_here THEN
+				RAISE EXCEPTION '% looping with % %', this, $1, $2;
+			END IF;
+			kilroy_was_here := true;
+			BEGIN
+				RAISE NOTICE '%: SELECT lo_import(%)', this, full_path;
+				lo_oid := lo_import(full_path);
+				IF lo_oid IS NULL THEN
+					RAISE EXCEPTION '%: lo_import(%) failed', this, $1;
+				END IF;
+				INSERT INTO blob_docs(page_uri_, lang, length_, lo_)
+				VALUES ($2, $3, $4, lo_oid);
+			EXCEPTION
+				WHEN unique_violation THEN			-- another thread??
+					RAISE NOTICE '% % % raised %!',
+					this, $1, $2, 'unique_violation';
+			END;
+		END LOOP;
+	END;
+$$ LANGUAGE plpgsql STRICT;
+
+CREATE OR REPLACE FUNCTION get_large_object_doc(
+	full_path text, page_uri_refs, doc_lang_name_refs,
+	file_size bigint = -1, blob_hashes = blob_hash_nil()
+) RETURNS doc_refs AS $$
+	SELECT non_null(
+		try_get_large_object_doc($1, $2, $3, $4, $5),
+		'get_large_object_doc(text, page_uri_refs, doc_lang_name_refs,	bigint, blob_hashes)'
+	)
+$$ LANGUAGE sql;
+
+COMMENT ON FUNCTION get_large_object_doc(
+	text, page_uri_refs, doc_lang_name_refs,	bigint, blob_hashes
+) IS '
+	find or create blob as a large object;
+	currently large objects are deprecated!!
+	much has changed so if we undeprecate large objects
+	this code will need inspection and testing!!
+';
+
+-- ** get_static_doc
+
+CREATE OR REPLACE
+FUNCTION try_xfiles_page_uri(text)  RETURNS page_uri_refs AS $$
+	SELECT try_get_page_uri(
+			uri_entity_pair_nil(),
+			try_get_uri_domain_name(matches[2]::citext),
+			try_get_uri_path_name(matches[3])
+		) FROM COALESCE(
+			try_str_match($1, '^(Domain)/([^/]*)/(.*)$'),
+			try_str_match($1, '^XFiles/(Domain)/([^/]*)/(.*)$'),
+			try_str_match($1, '^.*/XFiles/(Domain)/([^/]*)/(.*)$'),
+			try_str_match($1, '^.*/(XFiles)()/(.*)$'),
+			try_str_match($1, '^(XFiles)()/(.*)$'),
+			try_str_match($1, '^()()/([^/].*)$')
+		) matches
+$$ LANGUAGE sql STRICT;
+
+CREATE OR REPLACE
+FUNCTION xfiles_page_uri(text) RETURNS page_uri_refs AS $$
+	SELECT non_null(
+		try_xfiles_page_uri($1),	'xfiles_page_uri(text)'
+	)
+$$ LANGUAGE sql;
+
+COMMENT ON FUNCTION xfiles_page_uri(text)
+IS 'Given a path to a file under XFiles, return ';
+
+SELECT test_func(
+	'xfiles_page_uri(text)',
+	page_uri_text( try_xfiles_page_uri( '/home/greg/.Wicci/XFiles/Domain/wicci.org/Entity-Icon/friend-kas.jpg'::text ) ),
+	'wicci.org/Entity-Icon/friend-kas.jpg'::text
+);
+
+SELECT test_func(
+	'xfiles_page_uri(text)',
+	page_uri_text( try_xfiles_page_uri( 'XFiles/Domain/wicci.org/Entity-Icon/friend-kas.jpg'::text ) ),
+	'wicci.org/Entity-Icon/friend-kas.jpg'::text
+);
+
+SELECT test_func(
+	'xfiles_page_uri(text)',
+	page_uri_text( try_xfiles_page_uri( 'Domain/wicci.org/Entity-Icon/friend-kas.jpg'::text ) ),
+	'wicci.org/Entity-Icon/friend-kas.jpg'::text
+);
+
+SELECT test_func(
+	'xfiles_page_uri(text)',
+	page_uri_text( try_xfiles_page_uri( '/home/greg/.Wicci/XFiles/JS/JS/cci.js' ) ),
+	'/JS/JS/cci.js'
+);
+
+CREATE OR REPLACE FUNCTION page_uri_xfiles_path(page_uri_refs) RETURNS text AS $$
+DECLARE
+	_page RECORD;
+	is_a_dir BOOLEAN;
+	file_name text;
+	_this regprocedure = 'page_uri_xfiles_path(page_uri_refs)';
+BEGIN
+  IF is_nil($1) THEN
+	   RAISE EXCEPTION '%(nil)!', _this;
+	END IF;
+	SELECT INTO _page domain_, path_ FROM page_uri_rows WHERE ref = $1;
+  IF _page IS NULL THEN
+	   RAISE EXCEPTION '%: no page uri %!', _this, $1;
+	END IF;
+  IF is_nil(_page.path_) THEN
+	   RAISE EXCEPTION '%: no path for %!', _this, $1;
+	END IF;
+  IF is_nil(_page.domain_) THEN
+		file_name := 'XFiles/' || uri_path_name_text(_page.path_);
+	ELSE
+		file_name := 'XFiles/Domain/' || uri_domain_name_text(_page.domain_) || '/' || uri_path_name_text(_page.path_);
+	END IF;
+	BEGIN
+		SELECT INTO is_a_dir is_dir
+		FROM pg_stat_file(file_name) foo(size, access, modification, change, creation, is_dir);
+		IF is_a_dir THEN
+			RAISE EXCEPTION '%: % is a directory!', _this, file_name;
+		END IF;
+	EXCEPTION
+	WHEN SQLSTATE '58P01' THEN	RAISE WARNING '%: % file not found', _this, file_name;
+	END;
+	RETURN file_name;
+END
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION page_uri_xfiles_path(page_uri_refs)
+IS 'given a page_uri which encodes a filename path under XFiles,
+recover that path, check it for reasonableness and return it;';
+
+SELECT test_func(
+	'page_uri_xfiles_path(page_uri_refs)',
+	page_uri_xfiles_path( try_page_uri( 'wicci.org/Entity-Icon/friend-kas.jpg' ) ),
+	'XFiles/Domain/wicci.org/Entity-Icon/friend-kas.jpg'
+);
+
+SELECT test_func(
+	'page_uri_xfiles_path(page_uri_refs)',
+	page_uri_xfiles_path( try_page_uri( '/JS/JS/cci.js' ) ),
+	'XFiles/JS/JS/cci.js'
+);
+
+CREATE OR REPLACE FUNCTION get_static_doc(
+	file_name text,
+	doc_lang doc_lang_name_refs,
+	page_uri_ref page_uri_refs = NULL,
+	file_size bigint = -1,
+	file_hash blob_hashes = blob_hash_nil(),
+	storage_policy regclass = NULL
+) RETURNS doc_refs AS $$
+	SELECT non_null(
+		CASE COALESCE(storage_policy, static_doc_storage_policy())
+		WHEN 'large_object_doc_rows'::regclass THEN
+		get_large_object_doc(file_path, page_uri, $2, $4, $5)
+		WHEN 'file_doc_rows'::regclass THEN
+		get_file_doc(page_uri, $2, $4, $5)
+		WHEN 'blob_doc_rows'::regclass THEN
+		get_blob_doc(file_path, page_uri, $2, $4, $5)
+		END,
+		'get_static_doc(text,doc_lang_name_refs, page_uri_refs, bigint, blob_hashes, regclass)'
+) FROM
+	COALESCE(page_uri_ref, xfiles_page_uri($1)) page_uri,
+	LATERAL page_uri_xfiles_path(page_uri) file_path
+$$ LANGUAGE sql;
+
+COMMENT ON FUNCTION get_static_doc(
+	text, doc_lang_name_refs, page_uri_refs, bigint, blob_hashes, regclass
+) IS 'find or create a static (unparsed, simple hunk of bytes) document';
+
 -- * env_doc
 
 SELECT create_env_name_type_func(

@@ -39,12 +39,3 @@ SELECT declare_ref_class_with_funcs('doc_page_rows');
 
 INSERT INTO doc_page_rows(ref, uri, doc)
 VALUES (doc_page_nil(), page_uri_nil(), doc_nil());
-
--- * large_object
-
-CREATE TABLE IF NOT EXISTS large_object_docs (
-	uri_ page_uri_refs PRIMARY KEY REFERENCES page_uri_rows,
-	lang_ doc_lang_name_refs NOT NULL REFERENCES doc_lang_name_rows,
-	length_ bigint,
-	lo_ OID NOT NULL
-);
