@@ -69,7 +69,7 @@ SELECT declare_abstract('abstract_base_doc_rows');
 -- SELECT declare_ref_type_class('doc_refs', 'abstract_base_doc_rows'); -- why??
 
 CREATE TABLE IF NOT EXISTS abstract_static_doc_rows (
-	hash__ blob_hashes,
+	hash__ hashes,
 	length__ bigint
 ) INHERITS (abstract_base_doc_rows);
 COMMENT ON COLUMN abstract_static_doc_rows.hash__ IS

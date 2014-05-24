@@ -198,7 +198,7 @@ CREATE OR REPLACE FUNCTION try_get_static_xfiles_page(
 	file_name text,
 	doc_lang doc_lang_name_refs,
 	file_size bigint = -1,
-	file_hash blob_hashes = blob_hash_nil()
+	file_hash hashes = hash_nil()
 ) RETURNS doc_page_refs AS $$
 	SELECT get_doc_page(page_uri, doc)
 	FROM
@@ -210,16 +210,16 @@ CREATE OR REPLACE FUNCTION get_static_xfiles_page(
 	file_name text,
 	doc_lang doc_lang_name_refs,
 	file_size bigint = -1,
-	file_hash blob_hashes = blob_hash_nil()
+	file_hash hashes = hash_nil()
 ) RETURNS doc_page_refs AS $$
 	SELECT non_null(
 		try_get_static_xfiles_page($1, $2, $3, $4),
-		'get_static_xfiles_page(text,doc_lang_name_refs, bigint, blob_hashes)'
+		'get_static_xfiles_page(text,doc_lang_name_refs, bigint, hashes)'
 	)
 $$ LANGUAGE sql;
 
 COMMENT ON FUNCTION get_static_xfiles_page(
-	text, doc_lang_name_refs,	bigint, blob_hashes
+	text, doc_lang_name_refs,	bigint, hashes
 ) IS '
 	find or create a static (unparsed, simple hunk of bytes) document
 	and bind it to a page url
@@ -230,7 +230,7 @@ CREATE OR REPLACE FUNCTION get_static_xfiles_page(
 	doc_lang doc_lang_name_refs,
 	dir_path text,
 	file_size bigint = -1,
-	file_hash blob_hashes = blob_hash_nil()
+	file_hash hashes = hash_nil()
 ) RETURNS doc_page_refs AS $$
 	SELECT get_static_xfiles_page($3 || '/' || $1, $2, $4, $5)
 $$ LANGUAGE sql;

@@ -230,30 +230,84 @@ $$ LANGUAGE sql;
 
 -- * blob_doc_rows
 
--- rewrite!!!
-CREATE OR REPLACE FUNCTION get_blob_doc (
-	full_path text, page_uri_refs, doc_lang_name_refs,
-	file_size bigint = -1, blob_hashes = blob_hash_nil()
-) RETURNS doc_refs AS $$
-	SELECT doc_nil()
-$$ LANGUAGE sql;
 
-COMMENT ON FUNCTION 
-get_blob_doc(text, page_uri_refs, doc_lang_name_refs, bigint, blob_hashes)
-IS 'undefined!!!';
+CREATE OR REPLACE FUNCTION try_get_blob_doc (
+	full_path text, page page_uri_refs,
+	lang_name doc_lang_name_refs,
+	file_size bigint = -1, file_hash hashes = hash_nil()
+) RETURNS doc_refs AS $$
+	DECLARE
+		doc RECORD;
+		blob_hash hashes;
+		kilroy_was_here boolean := false;
+		this regprocedure := 'try_get_blob_doc(
+			text, page_uri_refs, doc_lang_name_refs, bigint, hashes
+		)';
+	BEGIN
+		LOOP
+			SELECT * INTO doc FROM blob_doc_rows
+			WHERE page_uri_ = page AND lang = lang_name;
+			IF FOUND THEN
+				IF doc.lang <> lang_name THEN
+					RAISE NOTICE '% % % % stored lang is %!',
+					this, $1, $2, $3, doc.lang;
+				END IF;
+				IF file_hash IS NOT NULL THEN
+					blob_hash := blob_hash(doc.blob_);
+					IF file_hash <> blob_hash THEN
+						RAISE NOTICE '% % % % % stored hash is %!',
+						this, $1, $2, $3, $6, blob_hash;
+					END IF;
+				END IF;
+				RETURN doc.ref;
+			END IF;
+			IF kilroy_was_here THEN
+				RAISE EXCEPTION '% looping with % % %', this, $1, $2, $3;
+			END IF;
+			kilroy_was_here := true;
+			BEGIN
+				INSERT INTO blob_doc_rows( blob_, page_uri_, lang )
+				VALUES ( get_blob(pg_read_binary_file($1)), $2, $3 );
+			EXCEPTION
+				WHEN unique_violation THEN			-- another thread??
+					RAISE NOTICE '% % % % raised %!',
+					this, $1, $2, $3, 'unique_violation';
+			END;
+		END LOOP;
+	END;
+$$ LANGUAGE plpgsql STRICT;
+
+COMMENT ON FUNCTION try_get_blob_doc(
+	text, page_uri_refs,	doc_lang_name_refs, bigint, hashes
+) IS '
+	Finds or loads file with given path and language.
+	What if lang has changed for a given file?
+	Currently file_size and file are not given!!
+	Does not reload file if contents or lang changed!!
+';
+
+CREATE OR REPLACE FUNCTION get_blob_doc (
+	full_path text, page page_uri_refs,
+	lang_name doc_lang_name_refs,
+	file_size bigint = -1, file_hash hashes = hash_nil()
+) RETURNS doc_refs AS $$
+	SELECT non_null(
+		try_get_blob_doc($1, $2, $3, $4, $5),
+		'get_blob_doc(text, page_uri_refs, doc_lang_name_refs,	bigint, hashes)'
+	)
+$$ LANGUAGE sql;
 
 -- * file_doc_rows
 
--- rewrite!!!
 CREATE OR REPLACE FUNCTION try_get_file_doc (
 	page page_uri_refs, lang_name doc_lang_name_refs,
-	file_size bigint = -1, blob_hashes = blob_hash_nil()
+	file_size bigint = -1, hashes = hash_nil()
 ) RETURNS doc_refs AS $$
 	DECLARE
 		doc doc_refs := NULL; -- unchecked_ref_null();
 		kilroy_was_here boolean := false;
 		this regprocedure := 'try_get_file_doc(
-			page_uri_refs, doc_lang_name_refs, bigint, blob_hashes
+			page_uri_refs, doc_lang_name_refs, bigint, hashes
 		)';
 	BEGIN
 		LOOP
@@ -276,13 +330,22 @@ CREATE OR REPLACE FUNCTION try_get_file_doc (
 	END;
 $$ LANGUAGE plpgsql STRICT;
 
+COMMENT ON FUNCTION try_get_file_doc(
+	page_uri_refs, doc_lang_name_refs,	bigint, hashes
+) IS '
+	This storage policy should only be used during development!!
+	Should we do more checking??
+	Does the path hold a file??
+	If we already have it, have the lang or hashes changed??
+';
+
 CREATE OR REPLACE FUNCTION get_file_doc (
 	page_uri_refs, doc_lang_name_refs,
-	bigint = -1, blob_hashes = blob_hash_nil()
+	bigint = -1, hashes = hash_nil()
 ) RETURNS doc_refs AS $$
 	SELECT non_null(
 		try_get_file_doc($1, $2, $3, $4),
-		'get_file_doc(page_uri_refs, doc_lang_name_refs,	bigint, blob_hashes)'
+		'get_file_doc(page_uri_refs, doc_lang_name_refs,	bigint, hashes)'
 	)
 $$ LANGUAGE sql;
 
@@ -290,7 +353,7 @@ $$ LANGUAGE sql;
 
 CREATE OR REPLACE FUNCTION try_get_large_object_doc(
 	full_path text, page_uri_refs, doc_lang_name_refs,
-	file_size bigint = -1, blob_hashes = blob_hash_nil()
+	file_size bigint = -1, hashes = hash_nil()
 ) RETURNS doc_refs AS $$
 	DECLARE
 		_lo RECORD;
@@ -333,16 +396,16 @@ $$ LANGUAGE plpgsql STRICT;
 
 CREATE OR REPLACE FUNCTION get_large_object_doc(
 	full_path text, page_uri_refs, doc_lang_name_refs,
-	file_size bigint = -1, blob_hashes = blob_hash_nil()
+	file_size bigint = -1, hashes = hash_nil()
 ) RETURNS doc_refs AS $$
 	SELECT non_null(
 		try_get_large_object_doc($1, $2, $3, $4, $5),
-		'get_large_object_doc(text, page_uri_refs, doc_lang_name_refs,	bigint, blob_hashes)'
+		'get_large_object_doc(text, page_uri_refs, doc_lang_name_refs,	bigint, hashes)'
 	)
 $$ LANGUAGE sql;
 
 COMMENT ON FUNCTION get_large_object_doc(
-	text, page_uri_refs, doc_lang_name_refs,	bigint, blob_hashes
+	text, page_uri_refs, doc_lang_name_refs,	bigint, hashes
 ) IS '
 	find or create blob as a large object;
 	currently large objects are deprecated!!
@@ -458,7 +521,7 @@ CREATE OR REPLACE FUNCTION get_static_doc(
 	doc_lang doc_lang_name_refs,
 	page_uri_ref page_uri_refs = NULL,
 	file_size bigint = -1,
-	file_hash blob_hashes = blob_hash_nil(),
+	file_hash hashes = hash_nil(),
 	storage_policy regclass = NULL
 ) RETURNS doc_refs AS $$
 	SELECT non_null(
@@ -470,14 +533,14 @@ CREATE OR REPLACE FUNCTION get_static_doc(
 		WHEN 'blob_doc_rows'::regclass THEN
 		get_blob_doc(file_path, page_uri, $2, $4, $5)
 		END,
-		'get_static_doc(text,doc_lang_name_refs, page_uri_refs, bigint, blob_hashes, regclass)'
+		'get_static_doc(text,doc_lang_name_refs, page_uri_refs, bigint, hashes, regclass)'
 ) FROM
 	COALESCE(page_uri_ref, xfiles_page_uri($1)) page_uri,
 	LATERAL page_uri_xfiles_path(page_uri) file_path
 $$ LANGUAGE sql;
 
 COMMENT ON FUNCTION get_static_doc(
-	text, doc_lang_name_refs, page_uri_refs, bigint, blob_hashes, regclass
+	text, doc_lang_name_refs, page_uri_refs, bigint, hashes, regclass
 ) IS 'find or create a static (unparsed, simple hunk of bytes) document';
 
 -- * env_doc
