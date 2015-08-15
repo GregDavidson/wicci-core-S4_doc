@@ -79,7 +79,7 @@ CREATE OR REPLACE FUNCTION try_declare_doc_kind_lang_type(
 				RETURN tuple.kind;
 			END IF;
 			IF kilroy_was_here THEN
-				RAISE EXCEPTION '% % % looping', this, $1, $2, $3;
+				RAISE EXCEPTION '% % % % looping', this, $1, $2, $3;
 			END IF;
 			kilroy_was_here := true;
 			BEGIN

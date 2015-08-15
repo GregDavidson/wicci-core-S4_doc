@@ -427,6 +427,7 @@ FUNCTION try_xfiles_page_uri(text)  RETURNS page_uri_refs AS $$
 			try_str_match($1, '^.*/XFiles/(Domain)/([^/]*)/(.*)$'),
 			try_str_match($1, '^.*/(XFiles)()/(.*)$'),
 			try_str_match($1, '^(XFiles)()/(.*)$'),
+			try_str_match($1, '^(Favicons)()/(.*)$'),
 			try_str_match($1, '^()()/([^/].*)$')
 		) matches
 $$ LANGUAGE sql STRICT;
